@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Stealth Oni Game</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- 管理者用ボタン -->
+<div id="adminControls" class="panel">
+  <button id="drawAreaBtn">プレイエリア描く</button>
+  <button id="finishAreaBtn" style="display:none;">エリア確定</button>
+  <button id="cancelAreaBtn" style="display:none;">キャンセル</button>
+  <button id="addZoneBtn">チェックポイント追加</button>
+  <button id="startBtn">ゲーム開始</button>
+  <button id="resetBtn">リセット</button>
+</div>
+
+<!-- プレイヤー用ボタン -->
+<div id="playerControls" class="panel">
+  <button id="caughtBtn">捕まった</button>
+  <button id="freeBtn">復活</button>
+</div>
+
+<!-- Firebase -->
+<!-- Firebase 8（scriptで使える安定版） -->
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+
+<script src="main.js"></script>
+
+<!-- Google Maps（APIキーを入れる） -->
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAkeALBpnbKTE6PtNZkI6VkYH5oi3xhOBw&libraries=geometry&callback=initMap"></script>
+
+</body>
+</html>
