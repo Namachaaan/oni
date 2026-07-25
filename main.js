@@ -39,7 +39,7 @@ let playerName = getStoredPlayerName();
 // 何も付けない通常のURL（index.html）を開いた人は、全員「参加者」になる。
 // 例: index.html          → 参加者用（そのまま配る用のURL）
 //     index.html?admin=1  → 管理者(進行役)用。人には配らない。パスワードを求められる。
-const ADMIN_PASSWORD = "MISAKI";
+const ADMIN_PASSWORD = "Ikiruisbest";
 
 function determineIsAdmin() {
   const wantsAdmin = new URLSearchParams(window.location.search).get("admin") === "1";
@@ -68,7 +68,8 @@ let fadingZoneIds = new Set(); // フェードアウト中のzone idを記録（
 let currentPosition = null;
 let ownMarker = null;
 
-const CHECKPOINT_RADIUS_METERS = 40; // チェックポイントの大きさは常にこれ
+const CHECKPOINT_RADIUS_METERS = 40; // チェックポイントの見た目の大きさは常にこれ
+const CHECKPOINT_CONTACT_RADIUS_METERS = 8; // 実際に「接触した」と判定して消す距離（見た目の円より小さい）
 
 let gameStarted = false;   // ゲームがまだ始まっていない間はチェックポイント判定をしない
 let isPlacingZone = false; // チェックポイント設置モード中かどうか
@@ -191,6 +192,19 @@ function setupNameModal() {
   });
 }
 
+// 鬼役には「捕まった/復活」ボタンを表示しない（捕まるのはにげる役だけのため）。管理者にも表示しない。
+function updatePlayerControlsVisibility() {
+  const playerControls = document.getElementById("playerControls");
+  if (!playerControls) return;
+
+  if (isAdmin) {
+    playerControls.style.display = "none";
+    return;
+  }
+
+  playerControls.style.display = myJob === "oni" ? "none" : "block";
+}
+
 function setupUI() {
   const adminControls = document.getElementById("adminControls");
   const playerControls = document.getElementById("playerControls");
@@ -201,7 +215,7 @@ function setupUI() {
   }
 
   if (playerControls) {
-    playerControls.style.display = isAdmin ? "none" : "block";
+    updatePlayerControlsVisibility();
   }
 
   if (participantPanel) {
@@ -434,7 +448,7 @@ function loadZones() {
   });
 }
 
-// にげる役の人が半径内に入ったら「通過済み」フラグを立てる→全員の画面でフェードアウトする
+// にげる役の人がチェックポイントに接触したら「通過済み」フラグを立てる→全員の画面でフェードアウトする
 function checkZonePassing() {
   if (!currentPosition || isAdmin || myJob !== "nige") return;
 
@@ -446,7 +460,7 @@ function checkZonePassing() {
       new google.maps.LatLng(zone.position.lat, zone.position.lng)
     );
 
-    if (distance <= (zone.radius || CHECKPOINT_RADIUS_METERS)) {
+    if (distance <= CHECKPOINT_CONTACT_RADIUS_METERS) {
       db.ref(`zones/${zone.id}`).update({ passed: true, passedAt: Date.now() });
     }
   });
@@ -594,6 +608,7 @@ function watchOwnState() {
     if (data.job) myJob = data.job;
     if (data.status) myStatus = data.status;
     updateOwnMarker();
+    updatePlayerControlsVisibility();
   });
 }
 
