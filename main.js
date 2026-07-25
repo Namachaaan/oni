@@ -39,7 +39,7 @@ let playerName = getStoredPlayerName();
 // 何も付けない通常のURL（index.html）を開いた人は、全員「参加者」になる。
 // 例: index.html          → 参加者用（そのまま配る用のURL）
 //     index.html?admin=1  → 管理者(進行役)用。人には配らない。パスワードを求められる。
-const ADMIN_PASSWORD = "Ikiruisbest";
+const ADMIN_PASSWORD = "I love Ikiru";
 
 function determineIsAdmin() {
   const wantsAdmin = new URLSearchParams(window.location.search).get("admin") === "1";
