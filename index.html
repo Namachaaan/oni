@@ -9,6 +9,26 @@
 
 <div id="map"></div>
 
+<!-- 名前・役割入力モーダル（初回参加時に表示。管理者には表示されない） -->
+<div id="nameModal" class="modalOverlay">
+  <div class="modalBox">
+    <p>なまえを入力してください</p>
+    <input type="text" id="nameInput" placeholder="例: たろう" maxlength="10">
+    <p>役割を選んでください</p>
+    <div class="roleChoiceGroup">
+      <button type="button" class="roleChoiceBtn roleOni" data-role="oni">🔴 鬼</button>
+      <button type="button" class="roleChoiceBtn rolePlayer" data-role="player">🔵 にげる</button>
+    </div>
+    <button id="nameSubmitBtn">参加する</button>
+  </div>
+</div>
+
+<!-- 役割切り替えパネル（一般参加者のみ。後からいつでも鬼/にげるを切り替え可能） -->
+<div id="roleSwitchControls" class="panel panelTopRight">
+  <button type="button" class="roleChoiceBtn roleOni" data-role="oni">🔴 鬼</button>
+  <button type="button" class="roleChoiceBtn rolePlayer" data-role="player">🔵 にげる</button>
+</div>
+
 <!-- 管理者用ボタン -->
 <div id="adminControls" class="panel">
   <button id="drawAreaBtn">プレイエリア描く</button>
