@@ -14,12 +14,45 @@ const db = firebase.database();
 // State
 // ---------------------------
 let map;
-let userID = "user_" + Math.floor(Math.random() * 99999);
 
-// role は URL の ?role=player を見て決める。
-// 例: index.html            → 管理者(鬼側の運営/司会)用
-//     index.html?role=player → 参加者(逃げる側)用
-let role = new URLSearchParams(window.location.search).get("role") === "player" ? "player" : "admin";
+// userID はブラウザに保存して固定化する（リロードしても同じ人として扱われるように）
+function getOrCreateUserID() {
+  let id = localStorage.getItem("gpsoni_userID");
+  if (!id) {
+    id = "user_" + Math.floor(Math.random() * 99999);
+    localStorage.setItem("gpsoni_userID", id);
+  }
+  return id;
+}
+let userID = getOrCreateUserID();
+
+// 名前もブラウザに保存する
+function getStoredPlayerName() {
+  return localStorage.getItem("gpsoni_playerName") || "";
+}
+function setStoredPlayerName(name) {
+  localStorage.setItem("gpsoni_playerName", name);
+}
+let playerName = getStoredPlayerName();
+
+// ゲーム上の役割（鬼 or にげる）もブラウザに保存する。回によって変わるので後から切り替え可能。
+function getStoredGameRole() {
+  const r = localStorage.getItem("gpsoni_gameRole");
+  return r === "oni" || r === "player" ? r : "";
+}
+function setStoredGameRole(r) {
+  localStorage.setItem("gpsoni_gameRole", r);
+}
+let gameRole = getStoredGameRole(); // "oni" | "player" | ""（未選択）
+
+// ---------------------------
+// 管理者判定：URLの合言葉(?admin=...)が一致した人だけが管理者になる。
+// これにより、リンクを共有された一般参加者が管理画面(プレイエリア設定・ゲーム開始・リセット等)に
+// 誤って/勝手に入ることはない。合言葉は好きな文字列に変更してOK。
+// 管理者用URLの例: index.html?admin=oni-master-2024
+// ---------------------------
+const ADMIN_ACCESS_KEY = "oni-master-2024";
+const isAdmin = new URLSearchParams(window.location.search).get("admin") === ADMIN_ACCESS_KEY;
 
 let playAreaPolygon = null;
 let zones = [];
@@ -31,12 +64,29 @@ let ownMarker = null;
 
 const CHECKPOINT_RADIUS_METERS = 40; // チェックポイントの大きさは常にこれ
 
-let gameStarted = false;   // ゲームがまだ始まっていない間は位置を共有しない
+let gameStarted = false;   // ゲームがまだ始まっていない間はチェックポイント判定をしない
 let isPlacingZone = false; // チェックポイント設置モード中かどうか
 let isDrawingArea = false; // プレイエリア設置モード中かどうか
 let drawAreaPoints = [];   // タップして置いた頂点
 let drawAreaPreview = null; // 作成中のプレビュー多角形
 let locationInterval = null;
+
+// 管理者は名前・役割選択なしで即開始。一般参加者は名前とゲーム上の役割(鬼/にげる)が揃うまで待つ。
+let identityReady = isAdmin || (!!playerName && !!gameRole);
+let mapReady = false;
+
+// マーカーの色分け（鬼=赤 / にげる=青 / 管理者=グレー）
+const ROLE_COLORS = {
+  admin: "#757575",
+  oni: "#e53935",
+  player: "#1e88e5"
+};
+function colorForRole(r) {
+  return ROLE_COLORS[r] || ROLE_COLORS.player;
+}
+function currentDbRole() {
+  return isAdmin ? "admin" : gameRole;
+}
 
 // 位置更新の間隔（ミリ秒）。指示により1分=60000。30秒にしたい場合は30000に変更。
 const LOCATION_UPDATE_INTERVAL_MS = 60000;
@@ -69,24 +119,133 @@ function initMap() {
   });
 
   setupUI();
+  setupNameModal();
+  setupRoleSwitchControls();
   loadPlayArea();
   loadZones();
   loadPlayers();
   listenGameState();
   startOwnLocationWatch(); // ページを開いた瞬間から常時、自分の位置を追跡
+
+  mapReady = true;
+  if (identityReady) {
+    beginTracking(); // 既に名前・役割が保存済み（または管理者）なら、位置が取れ次第すぐ共有を始める
+  }
+}
+
+// ---------------------------
+// 名前・役割入力モーダル（一般参加者が最初に開いたときだけ表示。管理者には出さない）
+// ---------------------------
+function setupNameModal() {
+  const modal = document.getElementById("nameModal");
+  const input = document.getElementById("nameInput");
+  const submitBtn = document.getElementById("nameSubmitBtn");
+  const roleButtons = document.querySelectorAll("#nameModal .roleChoiceBtn");
+  if (!modal || !input || !submitBtn) return;
+
+  if (isAdmin || identityReady) {
+    modal.classList.remove("show");
+    return;
+  }
+
+  let pendingRole = gameRole || "";
+  highlightRoleButtons(roleButtons, pendingRole);
+
+  modal.classList.add("show");
+  input.focus();
+
+  roleButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      pendingRole = btn.dataset.role;
+      highlightRoleButtons(roleButtons, pendingRole);
+    });
+  });
+
+  const submit = () => {
+    const name = input.value.trim();
+    if (!name) {
+      alert("なまえを入力してください");
+      return;
+    }
+    if (pendingRole !== "oni" && pendingRole !== "player") {
+      alert("「鬼」か「にげる」のどちらかを選んでください");
+      return;
+    }
+
+    playerName = name;
+    setStoredPlayerName(name);
+    gameRole = pendingRole;
+    setStoredGameRole(gameRole);
+    identityReady = true;
+    modal.classList.remove("show");
+
+    updateRoleDependentUI();
+
+    if (mapReady) {
+      beginTracking(); // 名前・役割が確定したら、位置が取れ次第すぐ共有を始める
+    }
+  };
+
+  submitBtn.addEventListener("click", submit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submit();
+  });
+}
+
+function highlightRoleButtons(buttons, selectedRole) {
+  buttons.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.role === selectedRole);
+  });
+}
+
+// ---------------------------
+// あとから役割（鬼/にげる）を切り替えるための常設ボタン（管理者には表示しない）
+// ---------------------------
+function setupRoleSwitchControls() {
+  const panel = document.getElementById("roleSwitchControls");
+  if (!panel) return;
+
+  if (isAdmin) {
+    panel.style.display = "none";
+    return;
+  }
+
+  panel.style.display = "flex";
+  const buttons = panel.querySelectorAll(".roleChoiceBtn");
+
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const newRole = btn.dataset.role;
+      if (newRole === gameRole) return;
+
+      gameRole = newRole;
+      setStoredGameRole(gameRole);
+      highlightRoleButtons(buttons, gameRole);
+      updateRoleDependentUI();
+      updateOwnMarker();
+      writeOwnPlayerState(); // 他の人の画面の色もすぐ更新
+    });
+  });
+
+  highlightRoleButtons(buttons, gameRole);
+}
+
+// 役割(鬼/にげる)に応じて表示する操作パネルを切り替える
+function updateRoleDependentUI() {
+  const playerControls = document.getElementById("playerControls");
+  if (playerControls) {
+    playerControls.style.display = (!isAdmin && gameRole === "player") ? "block" : "none";
+  }
 }
 
 function setupUI() {
   const adminControls = document.getElementById("adminControls");
-  const playerControls = document.getElementById("playerControls");
 
   if (adminControls) {
-    adminControls.style.display = role === "admin" ? "block" : "none";
+    adminControls.style.display = isAdmin ? "block" : "none";
   }
 
-  if (playerControls) {
-    playerControls.style.display = role === "admin" ? "none" : "block";
-  }
+  updateRoleDependentUI();
 
   document.getElementById("drawAreaBtn")?.addEventListener("click", startDrawPlayArea);
   document.getElementById("finishAreaBtn")?.addEventListener("click", finishDrawPlayArea);
@@ -111,7 +270,7 @@ function setupUI() {
 // プレイエリア（多角形）: 地図をタップして頂点を置き、「エリア確定」ボタンで確定する
 // ---------------------------
 function startDrawPlayArea() {
-  if (!map) return;
+  if (!isAdmin || !map) return;
 
   isDrawingArea = true;
   isPlacingZone = false; // 同時に他のモードに入らないようにする
@@ -148,6 +307,8 @@ function addAreaPoint(position) {
 }
 
 function finishDrawPlayArea() {
+  if (!isAdmin) return;
+
   if (drawAreaPoints.length < 3) {
     alert("プレイエリアには3点以上必要です。地図をタップして頂点を追加してください。");
     return;
@@ -221,6 +382,8 @@ function loadPlayArea() {
 // チェックポイント（クリックで即設置・大きさは常に40／通過したらフェードアウトして消える）
 // ---------------------------
 function placeCheckpointAt(position) {
+  if (!isAdmin) return;
+
   db.ref("zones").push({
     position,
     radius: CHECKPOINT_RADIUS_METERS,
@@ -244,7 +407,7 @@ function renderZoneCircle(zone) {
   });
 
   // 管理者はダブルクリック/ダブルタップでチェックポイントを削除できる
-  if (role === "admin") {
+  if (isAdmin) {
     circle.addListener("dblclick", () => {
       if (confirm("このチェックポイントを削除しますか？")) {
         db.ref(`zones/${zone.id}`).remove();
@@ -314,9 +477,9 @@ function loadZones() {
   });
 }
 
-// 逃げる側(player)が半径内に入ったら「通過済み」フラグを立てる→全員の画面でフェードアウトする
+// にげる側(gameRole === "player")が半径内に入ったら「通過済み」フラグを立てる→全員の画面でフェードアウトする
 function checkZonePassing() {
-  if (!currentPosition || role !== "player") return;
+  if (!currentPosition || isAdmin || gameRole !== "player") return;
 
   zones.forEach((zone) => {
     if (!zone.position || zone.passed) return;
@@ -349,15 +512,26 @@ function loadPlayers() {
     Object.entries(players).forEach(([id, player]) => {
       if (!player.position || id === userID) return;
 
+      const displayName = player.name || (player.role === "admin" ? "管理者" : id);
+
       const markerOptions = {
         position: player.position,
         map,
-        title: `${id} (${player.status || "active"})`
+        title: `${displayName} (${player.status || "active"})`,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 8,
+          fillColor: colorForRole(player.role),
+          fillOpacity: 1,
+          strokeColor: "#ffffff",
+          strokeWeight: 2
+        }
       };
 
       if (playerMarkers[id]) {
         playerMarkers[id].setPosition(player.position);
         playerMarkers[id].setTitle(markerOptions.title);
+        playerMarkers[id].setIcon(markerOptions.icon);
       } else {
         playerMarkers[id] = new google.maps.Marker(markerOptions);
       }
@@ -371,8 +545,18 @@ function loadPlayers() {
 function updateOwnMarker() {
   if (!currentPosition || !map) return;
 
+  const fillColor = colorForRole(currentDbRole());
+
   if (ownMarker) {
     ownMarker.setPosition(currentPosition);
+    ownMarker.setIcon({
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 8,
+      fillColor,
+      fillOpacity: 1,
+      strokeColor: "#ffffff",
+      strokeWeight: 2
+    });
   } else {
     ownMarker = new google.maps.Marker({
       position: currentPosition,
@@ -380,7 +564,7 @@ function updateOwnMarker() {
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
         scale: 8,
-        fillColor: "#e53935",
+        fillColor,
         fillOpacity: 1,
         strokeColor: "#ffffff",
         strokeWeight: 2
@@ -413,6 +597,10 @@ function startOwnLocationWatch() {
 
       updateOwnMarker(); // 自分の表示は常に即座に更新
 
+      if (identityReady && locationInterval) {
+        writeOwnPlayerState(); // 位置が動くたびに、他の人への共有も即座に更新
+      }
+
       if (gameStarted) {
         checkZonePassing(); // ゲーム開始後だけチェックポイント通過を判定
       }
@@ -422,9 +610,12 @@ function startOwnLocationWatch() {
   );
 }
 
-// ゲーム開始後に呼ばれる。他のプレイヤーへの共有(Firebaseへの書き込み)を指定間隔(既定1分)ごとに始める
+// 名前・役割が確定し、地図の準備ができ次第呼ばれる。
+// 他のプレイヤーへの位置共有(Firebaseへの書き込み)を指定間隔(既定1分)ごとに始める。
+// ※ゲーム開始を待たず、サイトを開いた時点から常に共有する。
 function beginTracking() {
   if (locationInterval) return; // 二重起動防止
+  if (!identityReady) return; // 名前・役割未確定なら開始しない
 
   writeOwnPlayerState();
   locationInterval = setInterval(() => {
@@ -433,11 +624,12 @@ function beginTracking() {
 }
 
 function writeOwnPlayerState(extraState = {}) {
-  if (!currentPosition) return;
+  if (!currentPosition || !identityReady) return;
 
   db.ref(`players/${userID}`).set({
     userID,
-    role,
+    name: isAdmin ? (playerName || "管理者") : playerName,
+    role: currentDbRole(), // "admin" | "oni" | "player"
     position: currentPosition,
     status: "active",
     updatedAt: Date.now(),
@@ -457,6 +649,8 @@ const GAME_DURATION_MS = 2 * 60 * 60 * 1000; // 所要時間: 2時間
 let countdownInterval = null;
 
 function startGame() {
+  if (!isAdmin) return;
+
   db.ref("game/state").set({
     started: true,
     startedAt: Date.now(),
@@ -467,7 +661,7 @@ function startGame() {
 
 // プレイエリア・チェックポイント・参加者の状態をリセット（管理者のみ）
 function resetGame() {
-  if (role !== "admin") return;
+  if (!isAdmin) return;
 
   if (!confirm("プレイエリア・チェックポイント・参加者の状態をすべてリセットします。よろしいですか？")) {
     return;
@@ -551,10 +745,12 @@ function updateCountdownDisplay(endTime) {
 }
 
 function markCaught() {
+  if (isAdmin || gameRole !== "player") return;
   writeOwnPlayerState({ status: "caught", caughtAt: Date.now() });
 }
 
 function markFree() {
+  if (isAdmin || gameRole !== "player") return;
   writeOwnPlayerState({ status: "active", caughtAt: null, freedAt: Date.now() });
 }
 
