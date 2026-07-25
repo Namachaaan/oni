@@ -9,24 +9,19 @@
 
 <div id="map"></div>
 
-<!-- 名前・役割入力モーダル（初回参加時に表示。管理者には表示されない） -->
+<!-- 名前入力モーダル（初回参加時に表示。役割は選ばせず、後で管理者が割り振る） -->
 <div id="nameModal" class="modalOverlay">
   <div class="modalBox">
     <p>なまえを入力してください</p>
     <input type="text" id="nameInput" placeholder="例: たろう" maxlength="10">
-    <p>役割を選んでください</p>
-    <div class="roleChoiceGroup">
-      <button type="button" class="roleChoiceBtn roleOni" data-role="oni">🔴 鬼</button>
-      <button type="button" class="roleChoiceBtn rolePlayer" data-role="player">🔵 にげる</button>
-    </div>
     <button id="nameSubmitBtn">参加する</button>
   </div>
 </div>
 
-<!-- 役割切り替えパネル（一般参加者のみ。後からいつでも鬼/にげるを切り替え可能） -->
-<div id="roleSwitchControls" class="panel panelTopRight">
-  <button type="button" class="roleChoiceBtn roleOni" data-role="oni">🔴 鬼</button>
-  <button type="button" class="roleChoiceBtn rolePlayer" data-role="player">🔵 にげる</button>
+<!-- 管理者用: 参加者一覧＆鬼/にげる の割り振り（管理者のみ表示） -->
+<div id="participantPanel" class="panel participantPanel">
+  <p class="participantPanelTitle">参加者（役割を割り振る）</p>
+  <div id="participantList"></div>
 </div>
 
 <!-- 管理者用ボタン -->
@@ -39,7 +34,7 @@
   <button id="resetBtn">リセット</button>
 </div>
 
-<!-- プレイヤー用ボタン -->
+<!-- 参加者用ボタン -->
 <div id="playerControls" class="panel">
   <button id="caughtBtn">捕まった</button>
   <button id="freeBtn">復活</button>
